@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=45", "wheel", "setuptools_scm>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools_scm]
+
+[project]
+name = "gensyn-genrl"
+version = "0.1.4"
+#dynamic = ["version"]
+description = "A General RL framerwork in a swarm environment"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "torch",
+    "numpy",
+    "hydra-core",
+    "datasets",
+    "transformers==4.51.3",
+    "tensorboard",
+    "wandb",
+    "requests",
+    "eth-account",
+    "web3",
+    "hivemind",
+]
+
+[project.optional-dependencies]
+dev = [
+    "black",
+    "isort",
+    "pytest",
+]
+
+examples = ["trl", 
+            "diffusers",
+            "peft", 
+            "reasoning-gym>=0.1.20"]

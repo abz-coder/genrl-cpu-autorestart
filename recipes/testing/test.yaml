@@ -1,0 +1,7 @@
+# Dummy yaml config for testing.
+
+log_dir: /home/gensyn/shared/test
+
+game_manager:
+  _target_: genrl.testing.testing_utils.TestGameManager
+  msg: this is test game

@@ -1,0 +1,96 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: genrl-test # Everywhere that says "example" here ought to match.
+  namespace: research
+spec:
+  clusterIP: None
+  selector:
+    job-name: genrl-test # Everywhere that says "example" here ought to match.
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: genrl-test # Everywhere that says "example" here ought to match.
+  namespace: research
+  annotations:
+    kueue.x-k8s.io/queue-name: research-queue
+spec:
+  suspend: false # Required for the queue to work
+  completionMode: Indexed
+
+  # Set to the number of parallel workers you'd like
+  completions: 2
+  parallelism: 2
+
+  template:
+    spec:
+      nodeSelector:
+        research-reserved: "true"
+
+      runtimeClassName: nvidia
+      tolerations:
+        - key: "research-reserved"
+          operator: "Exists"
+          effect: "NoSchedule"
+
+        - key: "nvidia.com/gpu"
+          operator: "Exists"
+          effect: "NoSchedule"
+
+      imagePullSecrets:
+        - name: gcp-repo-creds
+
+      restartPolicy: Never
+      subdomain: genrl-test # Everywhere that says "example" here ought to match.
+
+      volumes:
+      - emptyDir:
+          medium: Memory
+          sizeLimit: 16Gi
+        name: shm
+
+      - name: shared-volume
+        persistentVolumeClaim:
+          claimName: research-volume
+
+      containers:
+        # Change the below line to the image you want the job to use.
+        - image: europe-docker.pkg.dev/gensyn-main/registry/diloco-fp8-enabled:latest
+          name: job
+
+          # These should be self explanatory, but these change based on the job
+          workingDir: /home/gensyn/shared
+          command:
+            - bash
+            - -c
+            - 'cd /home/gensyn/shared/source/genrl && rm -rf build && pip install . && . scripts/train.sh 2 8 testing test.yaml'
+
+          env:
+          - name: MASTER_ADDR
+            # Every node will be discoverable at <job_name>-<index>.<subdomain>.research.svc.cluster.local
+            value: genrl-test-0.genrl-test.research.svc.cluster.local 
+
+          - name: MASTER_PORT
+            value: '29500'
+
+          # Feel free to add more ports below.
+          ports:
+          - containerPort: 29500
+            name: nccl
+
+          # These are per-pod
+          resources:
+            requests:
+              memory: 600G
+              cpu: 100
+            limits:
+              nvidia.com/gpu: '8'
+              memory: 600G
+
+          volumeMounts:
+            - mountPath: /dev/shm
+              name: shm
+
+            - name: shared-volume
+              mountPath: /home/gensyn/shared

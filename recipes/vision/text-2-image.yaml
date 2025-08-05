@@ -1,0 +1,76 @@
+
+training:
+  num_rounds: 2000
+  num_stages: 1
+  sample_batch_size: 12
+  train_batch_size: 6
+  train_gradient_accumulation_steps: 1
+  sample_num_steps: 50
+  output_dir: "/workspace/t2i"
+  log_with: "tensorboard" 
+  log_eval_num_samples: 10 
+  log_eval_every: 1
+  pretrained_model: runwayml/stable-diffusion-v1-5
+  pretrained_revision: main
+  use_lora: true
+  reward_model_id: trl-lib/ddpo-aesthetic-predictor
+  reward_model_filename: aesthetic-model.pth
+  sample_num_batches_per_round: 1 # do not change, must be 1 because of the game state
+
+log_dir: ${training.output_dir}/logs
+
+hydra:
+  run:
+    dir: ${log_dir}
+
+game_manager:
+  _target_: genrl.game.game_manager.BaseGameManager
+  max_stage: ${training.num_stages}
+  max_round: ${training.num_rounds}
+  prune_K: ${training.train_batch_size}
+  run_mode: "train_and_evaluate"
+  game_state:
+    _target_: genrl.state.game_state.GameState
+    round: 0
+    stage: 0
+  reward_manager:
+    _target_: genrl.rewards.DefaultRewardManager
+    reward_fn_store:
+      _target_: genrl.rewards.reward_store.RewardFnStore
+      max_rounds: ${training.num_rounds}
+      reward_fn_stores:
+        - _target_: genrl.rewards.reward_store.RoundRewardFnStore
+          num_stages: ${training.num_stages}
+          reward_fns:
+            - _target_: genrl.examples.text_to_image.rewards.ScorerReward
+              model_id: ${training.reward_model_id}
+              model_filename: ${training.reward_model_filename}
+              aesthetic: true # can we set this based on rank? rank % 2 == 0
+  trainer:
+    _target_: genrl.examples.text_to_image.ddpo_trainer.DDPOTrainer
+    config:
+      _target_: trl.DDPOConfig
+      num_epochs: ${training.num_rounds}
+      train_batch_size: ${training.train_batch_size}
+      sample_batch_size: ${training.sample_batch_size}
+      sample_num_steps: ${training.sample_num_steps}
+      train_gradient_accumulation_steps: ${training.train_gradient_accumulation_steps}
+      log_with: ${training.log_with}
+      sample_num_batches_per_epoch: ${training.sample_num_batches_per_round}
+      save_freq: 100
+    sd_pipeline:
+      _target_: trl.DefaultDDPOStableDiffusionPipeline
+      pretrained_model_name: ${training.pretrained_model}
+      pretrained_model_revision: ${training.pretrained_revision}
+      use_lora: ${training.use_lora}
+    output_dir: ${training.output_dir}
+  data_manager:
+    _target_: genrl.examples.text_to_image.data.LocalDatasetManager
+    train_dataset_path: /workspace/captions/hps_v2_all.txt
+    eval_dataset_path: /workspace/captions/hps_v2_all_eval.txt
+    train_batch_size: ${training.sample_batch_size}
+    num_eval_samples: ${training.log_eval_num_samples}
+    sample_num_batches_per_round: ${training.sample_num_batches_per_round}
+  communication:
+    _target_: genrl.communication.distributed.torch_comm.TorchBackend
+
