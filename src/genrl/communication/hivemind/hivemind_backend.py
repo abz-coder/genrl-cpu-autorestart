@@ -1,6 +1,7 @@
 import os
 import pickle
 import time
+import logging
 from typing import Any, Dict, List
 
 import torch.distributed as dist
@@ -9,6 +10,7 @@ from hivemind import DHT, get_dht_time
 from genrl.communication.communication import Communication
 from genrl.serialization.game_tree import from_bytes, to_bytes
 
+logger = logging.getLogger(__name__)
 
 class HivemindRendezvouz:
     _STORE = None
@@ -90,10 +92,26 @@ class HivemindBackend(Communication):
         self.step_ = 0
 
     def all_gather_object(self, obj: Any) -> Dict[str | int, Any]:
+        start_time = time.monotonic()
         key = str(self.step_)
+        logger.info(f"🔄 all_gather_object START: step={self.step_}, world_size={self.world_size}")
+        
         try:
-            _ = self.dht.get_visible_maddrs(latest=True)
+            # Проверка видимых адресов
+            maddrs_start = time.monotonic()
+            visible_maddrs = self.dht.get_visible_maddrs(latest=True)
+            maddrs_time = time.monotonic() - maddrs_start
+            logger.info(f"📡 get_visible_maddrs: {len(visible_maddrs)} addresses in {maddrs_time:.2f}s")
+            logger.info(f"📍 Visible addresses: {visible_maddrs}")
+            
+            # Сериализация объекта
+            serialize_start = time.monotonic()
             obj_bytes = to_bytes(obj)
+            serialize_time = time.monotonic() - serialize_start
+            logger.info(f"📦 Serialization took {serialize_time:.2f}s")
+            
+            # Сохранение в DHT
+            store_start = time.monotonic()
             self.dht.store(
                 key,
                 subkey=str(self.dht.peer_id),
@@ -101,26 +119,67 @@ class HivemindBackend(Communication):
                 expiration_time=get_dht_time() + self.timeout,
                 beam_size=self.beam_size,  
             )
+            store_time = time.monotonic() - store_start
+            logger.info(f"💾 DHT store took {store_time:.2f}s")
             
+            # Ожидание перед сбором
+            logger.info("⏱️  Waiting 1s before gathering...")
             time.sleep(1)
+            
+            # Сбор результатов
+            gather_start = time.monotonic()
             t_ = time.monotonic()
+            iteration = 0
+            
             while True:
+                iteration += 1
+                iter_start = time.monotonic()
+                
                 output_, _ = self.dht.get(key, beam_size=self.beam_size, latest=True)
-                if len(output_) >= self.world_size:
+                current_size = len(output_)
+                
+                iter_time = time.monotonic() - iter_start
+                elapsed = time.monotonic() - t_
+                
+                logger.info(f"🔍 Iteration {iteration}: got {current_size}/{self.world_size} responses in {iter_time:.2f}s (total: {elapsed:.1f}s)")
+                
+                if current_size >= self.world_size:
+                    logger.info(f"✅ Got all {self.world_size} responses!")
                     break
                 else:
-                    if time.monotonic() - t_ > self.timeout:
+                    if elapsed > self.timeout:
+                        logger.error(f"⏰ TIMEOUT after {elapsed:.1f}s! Got only {current_size}/{self.world_size}")
                         raise RuntimeError(
                             f"Failed to obtain {self.world_size} values for {key} within timeout."
                         )
+                    
+                    # Логируем прогресс каждые 10 секунд
+                    if iteration % 10 == 0:
+                        logger.warning(f"⚠️  Still waiting: {current_size}/{self.world_size} after {elapsed:.1f}s")
+            
+            gather_time = time.monotonic() - gather_start
+            logger.info(f"📊 Gathering took {gather_time:.2f}s in {iteration} iterations")
+            
             self.step_ += 1
 
+            # Обработка результатов
+            process_start = time.monotonic()
             tmp = sorted(
                 [(key, from_bytes(value.value)) for key, value in output_.items()],
                 key=lambda x: x[0],
             )
+            process_time = time.monotonic() - process_start
+            logger.info(f"⚙️  Processing results took {process_time:.2f}s")
+            
+            total_time = time.monotonic() - start_time
+            logger.info(f"✅ all_gather_object SUCCESS: total {total_time:.2f}s")
+            
             return {key: value for key, value in tmp}
+            
         except (BlockingIOError, EOFError) as e:
+            total_time = time.monotonic() - start_time
+            logger.error(f"❌ all_gather_object FAILED after {total_time:.2f}s: {e}")
+            logger.info("🔄 Falling back to local object only")
             return {str(self.dht.peer_id): obj}
 
     def get_id(self):
