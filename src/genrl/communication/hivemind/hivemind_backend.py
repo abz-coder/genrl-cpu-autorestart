@@ -1,3 +1,4 @@
+import logging
 import os
 import pickle
 import time
@@ -8,6 +9,8 @@ from hivemind import DHT, get_dht_time
 
 from genrl.communication.communication import Communication
 from genrl.serialization.game_tree import from_bytes, to_bytes
+
+logger = logging.getLogger(__name__)
 
 
 class HivemindRendezvouz:
@@ -94,7 +97,7 @@ class HivemindBackend(Communication):
         key = str(self.step_)
         try:
             visible_maddrs = self.dht.get_visible_maddrs(latest=True)
-            print(f"📍 Visible addresses: {visible_maddrs}")
+            logger.info(f"📍 Visible addresses: {visible_maddrs}")
             
             obj_bytes = to_bytes(obj)
             store_start = time.monotonic()
@@ -106,14 +109,14 @@ class HivemindBackend(Communication):
                 beam_size=self.beam_size,  
             )
             store_time = time.monotonic() - store_start
-            print(f"💾 DHT store took {store_time:.2f}s")
+            logger.info(f"💾 DHT store took {store_time:.2f}s")
             
             time.sleep(1)
             t_ = time.monotonic()
             while True:
                 output_, _ = self.dht.get(key, beam_size=self.beam_size, latest=True)
                 current_size = len(output_)
-                print(f"🔍 Got {current_size} responses")
+                logger.info(f"🔍 Got {current_size} responses")
                 
                 if current_size >= self.world_size:
                     break
@@ -130,12 +133,12 @@ class HivemindBackend(Communication):
             )
             
             total_time = time.monotonic() - start_time
-            print(f"✅ all_gather_object completed in {total_time:.2f}s")
+            logger.info(f"✅ all_gather_object completed in {total_time:.2f}s")
             
             return {key: value for key, value in tmp}
         except (BlockingIOError, EOFError) as e:
             total_time = time.monotonic() - start_time
-            print(f"❌ all_gather_object failed after {total_time:.2f}s: {e}")
+            logger.error(f"❌ all_gather_object failed after {total_time:.2f}s: {e}")
             return {str(self.dht.peer_id): obj}
 
     def get_id(self):
