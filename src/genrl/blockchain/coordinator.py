@@ -136,7 +136,6 @@ class ModalSwarmCoordinator(SwarmCoordinator):
                     "peerId": peer_id,
                 },
             )
-            logger.info(f"✅ Successfully submitted reward {reward} for round {round_num}")
         except requests.exceptions.HTTPError as e:
             if e.response is None or e.response.status_code != 500:
                 raise
@@ -152,7 +151,6 @@ class ModalSwarmCoordinator(SwarmCoordinator):
                 "submit-winner",
                 {"roundNumber": round_num, "winners": winners, "peerId": peer_id},
             )
-            logger.info(f"✅ Successfully submitted winners {winners} for round {round_num}")
         except requests.exceptions.HTTPError as e:
             if e.response is None or e.response.status_code != 500:
                 raise
