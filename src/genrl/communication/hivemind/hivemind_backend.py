@@ -103,7 +103,7 @@ class HivemindBackend(Communication):
         beam_size: int = 1000,
         **kwargs,
     ):
-        logger.info("?? Initializing HivemindBackend...")
+        logger.info("?? Initializing HivemindBackend-optimized-with-initial-peers...")
         logger.info(f"?? Constructor initial_peers parameter: {initial_peers}")
         
         self.world_size = int(os.environ.get("HIVEMIND_WORLD_SIZE", 1))
